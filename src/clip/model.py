@@ -331,6 +331,8 @@ class CLIPVisionCfg:
     layers: Union[Tuple[int, int, int, int], int] = 12
     width: int = 768
     patch_size: int = 16
+    ssl_emb_dim: int = 256
+    ssl_mlp_dim: int = 4096
     image_size: Union[Tuple[int, int], int] = 224
     timm_model_name: str = None  # a valid model name overrides layers, width, patch_size
     timm_model_pretrained: bool = False  # use (imagenet) pretrained weights for named model
@@ -361,6 +363,8 @@ class CLIP(nn.Module):
             text_cfg = CLIPTextCfg(**text_cfg)
 
         self.context_length = text_cfg.context_length
+        self.ssl_emb_dim = vision_cfg.ssl_emb_dim
+        self.ssl_mlp_dim = vision_cfg.ssl_mlp_dim
 
         act_layer = QuickGELU
         if vision_cfg.timm_model_name:
@@ -497,6 +501,41 @@ def convert_weights_to_fp16(model: nn.Module):
                     attr.data = attr.data.half()
 
     model.apply(_convert_weights_to_fp16)
+
+class SLIP(CLIP):
+    def __init__(
+            self,
+            embed_dim: int,
+            vision_cfg: CLIPVisionCfg,
+            text_cfg: CLIPTextCfg,
+    ):
+        if isinstance(vision_cfg, dict):
+            vision_cfg = CLIPVisionCfg(**vision_cfg)
+        if isinstance(text_cfg, dict):
+            text_cfg = CLIPTextCfg(**text_cfg)
+        super.__init__(embed_dim, vision_cfg, text_cfg)
+
+        self.image_mlp = self._build_mlp(in_dim=self.vision_width, mlp_dim=self.ssl_mlp_dim, out_dim=self.ssl_emb_dim)
+
+    def _build_mlp(self, in_dim, mlp_dim, out_dim):
+        return nn.Sequential(OrderedDict([
+            ("layer1", nn.Linear(in_dim, mlp_dim)),
+            ("bn1", nn.SyncBatchNorm(mlp_dim)),
+            ("relu1", nn.ReLU(inplace=True)),
+            ("layer2", nn.Linear(mlp_dim, mlp_dim)),
+            ("bn2", nn.SyncBatchNorm(mlp_dim)),
+            ("relu2", nn.ReLU(inplace=True)),
+            ("layer3", nn.Linear(mlp_dim, out_dim)),
+        ]))
+
+    def forward(self, image, text, aug1, aug2):
+        aug1_embed = self.image_mlp(self.visual(aug1))
+        aug2_embed = self.image_mlp(self.visual(aug2))
+        
+        image_embed = self.encode_image(image)
+        text_embed = self.encode_text(text)
+
+        return image_embed, text_embed, self.logit_scale.exp(), aug1_embed, aug2_embed
 
 
 def build_model(state_dict: dict):
