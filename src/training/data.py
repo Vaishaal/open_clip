@@ -35,22 +35,26 @@ from clip.openai_clip import tokenize
 
 
 class CsvDataset(Dataset):
-    def __init__(self, input_filename, transforms, img_key, caption_key, sep="\t"):
+    def __init__(self, input_filename, transforms, img_key, caption_key, augment=None, sep="\t"):
         logging.debug(f'Loading csv data from {input_filename}.')
         df = pd.read_csv(input_filename, sep=sep)
 
         self.images = df[img_key].tolist()
         self.captions = df[caption_key].tolist()
         self.transforms = transforms
+        self.augment = augment
         logging.debug('Done loading data.')
+
 
     def __len__(self):
         return len(self.captions)
 
     def __getitem__(self, idx):
         images = self.transforms(Image.open(str(self.images[idx])))
+        aug1 = self.augment(Image.open(str(self.images[idx])))
+        aug2 = self.augment(Image.open(str(self.images[idx])))
         texts = tokenize([str(self.captions[idx])])[0]
-        return images, texts
+        return images, texts, aug1, aug2
 
 
 @dataclass
@@ -278,8 +282,10 @@ class DistShardList(IterableDataset, DistPytorchEnv, Composable):
 def filter_no_caption(sample):
     return 'txt' in sample
 
+def identity(x):
+    return x
 
-def get_wds_dataset(args, preprocess_img, is_train):
+def get_wds_dataset(args, preprocess_img, augment=None, is_train=False):
     input_shards = args.train_data if is_train else args.val_data
     assert input_shards is not None
 
@@ -297,18 +303,22 @@ def get_wds_dataset(args, preprocess_img, is_train):
         epoch_shuffle=is_train,
         split_by_node=is_train  # NOTE: we do eval on a single gpu.
     )
+    if augment is None:
+        augment = identity
+
     dataset = (
         wds.WebDataset(shardlist)
         .select(filter_no_caption)
         .decode("pil", handler=wds.ignore_and_continue)
         .rename(image="jpg;png", text="txt")
-        .map_dict(image=preprocess_img, text=preprocess_txt)
-        .to_tuple("image", "text")
+        .to_tuple("image", "text", "image", "image")
+        .map_tuple(preprocess_img, preprocess_txt, augment, augment)
         .batched(args.batch_size, partial=not is_train or not args.distributed)
     )
     dataloader = wds.WebLoader(
         dataset, batch_size=None, shuffle=False, num_workers=args.workers,
     )
+
     if is_train and args.distributed:
         # With DDP, we need to make sure that all nodes get the same number of batches;
         # we do that by reusing a little bit of data.
@@ -319,15 +329,19 @@ def get_wds_dataset(args, preprocess_img, is_train):
     return DataInfo(dataloader, None)
 
 
-def get_csv_dataset(args, preprocess_fn, is_train):
+def get_csv_dataset(args, preprocess_fn, augment=None, is_train=None):
     input_filename = args.train_data if is_train else args.val_data
     assert input_filename
+    if augment is None:
+        augment = identity
+
     dataset = CsvDataset(
         input_filename,
         preprocess_fn,
         img_key=args.csv_img_key,
         caption_key=args.csv_caption_key,
-        sep=args.csv_separator)
+        sep=args.csv_separator, 
+        augment=augment)
     num_samples = len(dataset)
     sampler = DistributedSampler(dataset) if args.distributed and is_train else None
     shuffle = is_train and sampler is None
@@ -365,13 +379,13 @@ def get_dataset_fn(data_path, dataset_type):
         raise ValueError(f"Unsupported dataset type: {dataset_type}")
     
 
-def get_data(args, preprocess_fns):
+def get_data(args, preprocess_fns, augment):
     preprocess_train, preprocess_val = preprocess_fns
     data = {}
 
     if args.train_data:
         data["train"] = get_dataset_fn(args.train_data, args.dataset_type)(
-            args, preprocess_train, is_train=True)
+            args, preprocess_train, augment, is_train=True)
 
     if args.val_data:
         data["val"] = get_dataset_fn(args.val_data, args.dataset_type)(

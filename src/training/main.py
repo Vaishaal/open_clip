@@ -13,7 +13,7 @@ from torch import optim
 from torch.cuda.amp import GradScaler
 from torch.utils.tensorboard import SummaryWriter
 
-from clip.model import convert_weights_to_fp16, CLIP
+from clip.model import convert_weights_to_fp16, CLIP, SLIP
 from clip.openai_clip import _transform, load
 from training.data import get_data
 from training.distributed import is_master, init_distributed_device, world_info_from_env
@@ -21,6 +21,7 @@ from training.logger import setup_logging
 from training.params import parse_args
 from training.scheduler import cosine_lr
 from training.train import train_one_epoch, evaluate
+from training.augment import SIMCLR_AUGMENT
 
 try:
     import horovod.torch as hvd
@@ -121,7 +122,11 @@ def main():
         assert os.path.exists(model_config_file)
         with open(model_config_file, 'r') as f:
             model_info = json.load(f)
-        model = CLIP(**model_info)
+        if args.SLIP:
+            model = SLIP(**model_info)
+        else:
+            model = CLIP(**model_info)
+
         preprocess_train = _transform(model.visual.image_size, is_train=True)
         preprocess_val = _transform(model.visual.image_size, is_train=False)
 
@@ -147,8 +152,13 @@ def main():
 
     if args.dp:
         model = torch.nn.DataParallel(model, device_ids=args.multigpu)
+    if args.SLIP:
+        augment = SIMCLR_AUGMENT
+    else:
+        augment = None
 
-    data = get_data(args, (preprocess_train, preprocess_val))
+    data = get_data(args, (preprocess_train, preprocess_val), augment=augment)
+
     assert 'train' in data or 'val' in data, 'At least one of train or val datasets must be specified'
 
     exclude = lambda n, p: p.ndim < 2 or "bn" in n or "ln" in n or "bias" in n or 'logit_scale' in n

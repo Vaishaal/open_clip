@@ -365,6 +365,8 @@ class CLIP(nn.Module):
         self.context_length = text_cfg.context_length
         self.ssl_emb_dim = vision_cfg.ssl_emb_dim
         self.ssl_mlp_dim = vision_cfg.ssl_mlp_dim
+        self.vision_cfg = vision_cfg
+        self.text_cfg = text_cfg
 
         act_layer = QuickGELU
         if vision_cfg.timm_model_name:
@@ -513,9 +515,8 @@ class SLIP(CLIP):
             vision_cfg = CLIPVisionCfg(**vision_cfg)
         if isinstance(text_cfg, dict):
             text_cfg = CLIPTextCfg(**text_cfg)
-        super.__init__(embed_dim, vision_cfg, text_cfg)
-
-        self.image_mlp = self._build_mlp(in_dim=self.vision_width, mlp_dim=self.ssl_mlp_dim, out_dim=self.ssl_emb_dim)
+        super().__init__(embed_dim, vision_cfg, text_cfg)
+        self.image_mlp = self._build_mlp(in_dim=1024, mlp_dim=self.ssl_mlp_dim, out_dim=self.ssl_emb_dim)
 
     def _build_mlp(self, in_dim, mlp_dim, out_dim):
         return nn.Sequential(OrderedDict([
@@ -528,9 +529,11 @@ class SLIP(CLIP):
             ("layer3", nn.Linear(mlp_dim, out_dim)),
         ]))
 
-    def forward(self, image, text, aug1, aug2):
-        aug1_embed = self.image_mlp(self.visual(aug1))
-        aug2_embed = self.image_mlp(self.visual(aug2))
+    def forward(self, image, text, aug1, aug2): 
+        aug1_visual = self.visual(aug1)
+        aug2_visual = self.visual(aug2)
+        aug1_embed = self.image_mlp(aug1_visual)
+        aug2_embed = self.image_mlp(aug2_visual)
         
         image_embed = self.encode_image(image)
         text_embed = self.encode_text(text)

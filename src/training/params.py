@@ -92,6 +92,7 @@ def parse_args():
     parser.add_argument("--beta2", type=float, default=None, help="Adam beta 2.")
     parser.add_argument("--eps", type=float, default=None, help="Adam epsilon.")
     parser.add_argument("--wd", type=float, default=0.2, help="Weight decay.")
+    parser.add_argument("--ssl_scale", type=float, default=1.0, help="SSL Scale")
     parser.add_argument(
         "--warmup", type=int, default=10000, help="Number of steps to warmup for."
     )
@@ -114,6 +115,14 @@ def parse_args():
         default=False,
         help="Always save the most recent model trained to epoch_latest.pt.",
     )
+
+    parser.add_argument(
+        "--SLIP",
+        action="store_true",
+        default=False,
+        help="Add SIMCLR Loss to CLIP Loss."
+    )
+
     parser.add_argument(
         "--zeroshot-frequency", type=int, default=2, help="How often to run zero shot."
     )

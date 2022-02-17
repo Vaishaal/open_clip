@@ -23,81 +23,44 @@ import logging
 
 
 def gather_features(
-        image_features, text_features, aug1_embed=None, aug2_embed=None,
+        features0_features, features1_features,
         local_loss=False, gather_with_grad=False, rank=0, world_size=1, horovod=False):
     if horovod:
         assert hvd is not None, 'Please install horovod'
         if gather_with_grad:
-            all_image_features = hvd.allgather(image_features)
-            all_text_features = hvd.allgather(text_features)
-            if aug1_embed is not None and aug2_embed is not None:
-                all_aug1_embed = hvd.allgather(aug1_embed)
-                all_aug2_embed = hvd.allgather(aug2_embed)
-            else:
-                all_aug1_embed, all_aug2_embed = None, None
+            all_features0_features = hvd.allgather(features0_features)
+            all_features1_features = hvd.allgather(features1_features)
         else:
             with torch.no_grad():
-                all_image_features = hvd.allgather(image_features)
-                all_text_features = hvd.allgather(text_features)
-                if aug1_embed is not None and aug2_embed is not None:
-                    all_aug1_embed = hvd.allgather(aug1_embed)
-                    all_aug2_embed = hvd.allgather(aug2_embed)
-                else:
-                    all_aug1_embed, all_aug2_embed = None, None
+                all_features0_features = hvd.allgather(features0_features)
+                all_features1_features = hvd.allgather(features1_features)
             if not local_loss:
                 # ensure grads for local rank when all_* features don't have a gradient
-                gathered_image_features = list(all_image_features.chunk(world_size, dim=0))
-                gathered_text_features = list(all_text_features.chunk(world_size, dim=0))
-                gathered_image_features[rank] = image_features
-                gathered_text_features[rank] = text_features
-                all_image_features = torch.cat(gathered_image_features, dim=0)
-                all_text_features = torch.cat(gathered_text_features, dim=0)
-                if aug1_embed is not None and aug2_embed is not None:
-                    gathered_aug1_embed = list(all_aug1_embed.chunk(world_size, dim=0))
-                    gathered_aug2_embed = list(all_aug2_embed.chunk(world_size, dim=0))
-                    gathered_aug1_embed[rank] = aug1_embed
-                    gathered_aug2_embed[rank] = aug2_embed
-                    all_aug1_embed = torch.cat(gathered_aug1_embed, dim=0)
-                    all_aug2_embed = torch.cat(gathered_aug2_embed, dim=0)
-                else:
-                    all_aug1_embed, all_aug2_embed = None, None
+                gathered_features0_features = list(all_features0_features.chunk(world_size, dim=0))
+                gathered_features1_features = list(all_features1_features.chunk(world_size, dim=0))
+                gathered_features0_features[rank] = features0_features
+                gathered_features1_features[rank] = features1_features
+                all_features0_features = torch.cat(gathered_features0_features, dim=0)
+                all_features1_features = torch.cat(gathered_features1_features, dim=0)
     else:
         # We gather tensors from all gpus
         if gather_with_grad:
-            all_image_features = torch.cat(torch.distributed.nn.all_gather(image_features), dim=0)
-            all_text_features = torch.cat(torch.distributed.nn.all_gather(text_features), dim=0)
-            if aug1_embed is not None and aug2_embed is not None:
-                all_aug1_embed = torch.cat(torch.distributed.nn.all_gather(aug1_embed), dim=0)
-                all_aug2_embed = torch.cat(torch.distributed.nn.all_gather(aug2_embed), dim=0)
-            else:
-                all_aug1_embed, all_aug2_embed = None, None
+            all_features0_features = torch.cat(torch.distributed.nn.all_gather(features0_features), dim=0)
+            all_features1_features = torch.cat(torch.distributed.nn.all_gather(features1_features), dim=0)
         else:
-            gathered_image_features = [torch.zeros_like(image_features) for _ in range(world_size)]
-            gathered_text_features = [torch.zeros_like(text_features) for _ in range(world_size)]
-            dist.all_gather(gathered_image_features, image_features)
-            dist.all_gather(gathered_text_features, text_features)
-            if aug1_embed is not None and aug2_embed is not None:
-                gathered_aug1_embed = [torch.zeros_like(aug1_embed) for _ in range(world_size)]
-                gathered_aug2_embed = [torch.zeros_like(aug2_embed) for _ in range(world_size)]
-                dist.all_gather(gathered_aug1_embed, aug1_embed)
-                dist.all_gather(gathered_aug2_embed, aug2_embed)
-                all_aug1_embed = torch.cat(gathered_aug1_embed, dim=0)
-                all_aug2_embed = torch.cat(gathered_aug2_embed, dim=0)
-                if not local_loss:
-                    all_aug1_embed[rank] = aug1_embed
-                    all_aug2_embed[rank] = aug2_embed
-            else:
-                all_aug1_embed, all_aug2_embed = None, None
-
+            gathered_features0_features = [torch.zeros_like(features0_features) for _ in range(world_size)]
+            gathered_features1_features = [torch.zeros_like(features1_features) for _ in range(world_size)]
+            dist.all_gather(gathered_features0_features, features0_features)
+            dist.all_gather(gathered_features1_features, features1_features)
             if not local_loss:
                 # ensure grads for local rank when all_* features don't have a gradient
-                gathered_image_features[rank] = image_features
-                gathered_text_features[rank] = text_features
+                gathered_features0_features[rank] = features0_features
+                gathered_features1_features[rank] = features1_features
+            all_features0_features = torch.cat(gathered_features0_features, dim=0)
+            all_features1_features = torch.cat(gathered_features1_features, dim=0)
+    return all_features0_features, all_features1_features
 
-            all_image_features = torch.cat(gathered_image_features, dim=0)
-            all_text_features = torch.cat(gathered_text_features, dim=0)
 
-    return all_image_features, all_text_features, all_aug1_embed, all_aug2_embed
 
 class ClipLoss(nn.Module):
     def __init__(
@@ -120,8 +83,8 @@ class ClipLoss(nn.Module):
     def forward(self, image_features, text_features, logit_scale):
         device = image_features.device
         if self.world_size > 1:
-            all_image_features, all_text_features, _, _ = gather_features(
-                image_features, text_features, None, None,
+            all_image_features, all_text_features = gather_features(
+                image_features, text_features, 
                 self.local_loss, self.gather_with_grad, self.rank, self.world_size, self.horovod)
 
             if self.local_loss:
@@ -161,74 +124,71 @@ class SIMCLRLoss(nn.Module):
         temperature (float): the temperature to be applied on the logits
     """
 
-    def __init__(self, temperature=0.1):
+    def __init__(
+            self,
+            local_loss=False,
+            gather_with_grad=False,
+            rank=0,
+            world_size=1,
+            horovod=False,
+            temperature=0.1
+    ):
         super().__init__()
+        self.local_loss = local_loss
+        self.gather_with_grad = gather_with_grad
+        self.rank = rank
+        self.world_size = world_size
+        self.horovod = horovod
+        self.prev_num_logits = 0
+        self.labels = {}
         self.tau = temperature
-        self.labels = None
-        self.masks = None
-        self.last_local_batch_size = None
 
-    def forward(self, outputs):
-        q_a = outputs['aug1_embed']
-        q_b = outputs['aug2_embed']
-
+    def forward(self, aug1_embed, aug2_embed):
+        device = aug1_embed.device
+        q_a = aug1_embed
+        q_b = aug2_embed
         q_a = F.normalize(q_a, dim=-1, p=2)
         q_b = F.normalize(q_b, dim=-1, p=2)
-
         local_batch_size = q_a.size(0)
-
-        k_a, k_b = utils.all_gather_batch_with_grad([q_a, q_b])
-
-        if local_batch_size != self.last_local_batch_size:
-            self.labels = local_batch_size * utils.get_rank() + torch.arange(
-                local_batch_size, device=q_a.device
-            )
-            total_batch_size = local_batch_size * utils.get_world_size()
-            self.masks = F.one_hot(self.labels, total_batch_size) * 1e9
-            self.last_local_batch_size = local_batch_size
+        k_a, k_b = gather_features(
+            aug1_embed, aug2_embed, 
+            self.local_loss, self.gather_with_grad, self.rank, self.world_size, self.horovod)
 
         logits_aa = torch.matmul(q_a, k_a.transpose(0, 1)) / self.tau
-        logits_aa = logits_aa - self.masks
         logits_bb = torch.matmul(q_b, k_b.transpose(0, 1)) / self.tau
-        logits_bb = logits_bb - self.masks
         logits_ab = torch.matmul(q_a, k_b.transpose(0, 1)) / self.tau
         logits_ba = torch.matmul(q_b, k_a.transpose(0, 1)) / self.tau
+        num_logits = logits_aa.shape[0]
 
-        loss_a = F.cross_entropy(torch.cat([logits_ab, logits_aa], dim=1), self.labels)
-        loss_b = F.cross_entropy(torch.cat([logits_ba, logits_bb], dim=1), self.labels)
+        if self.prev_num_logits != num_logits or device not in self.labels:
+            labels = torch.arange(num_logits, device=device, dtype=torch.long)
+            if self.world_size > 1 and self.local_loss:
+                labels = labels + num_logits * self.rank
+            self.labels[device] = labels
+            total_batch_size = local_batch_size * self.world_size
+            all_labels = torch.cat([self.labels[x] for x in self.labels.keys()], dim=0)
+            self.masks = F.one_hot(all_labels, total_batch_size) * 1e9
+        else:
+            labels = self.labels[device]
+
+        logits_aa = logits_aa - self.masks
+        logits_bb = logits_bb - self.masks
+        loss_a = F.cross_entropy(torch.cat([logits_ab, logits_aa], dim=1), labels)
+        loss_b = F.cross_entropy(torch.cat([logits_ba, logits_bb], dim=1), labels)
         loss = (loss_a + loss_b) / 2  # divide by 2 to average over all samples
-
-        # compute accuracy
-        with torch.no_grad():
-            pred = torch.argmax(torch.cat([logits_ab, logits_aa], dim=1), dim=-1)
-            correct = pred.eq(self.labels).sum()
-            acc = 100 * correct / local_batch_size
-
-        return {'loss': loss, 'ssl_loss': loss, 'ssl_acc': acc}
-
+        return loss
 
 class SLIPLoss(nn.Module):
-    def __init__(self, ssl_loss, ssl_scale):
+    def __init__(self, ssl_loss, clip_loss, ssl_scale):
         super().__init__()
-        self.clip_loss = CLIPLoss()
+        self.clip_loss = clip_loss
         self.ssl_loss = ssl_loss
         self.ssl_scale = ssl_scale
 
-    def forward(self, outputs):
-        clip_loss_dict = self.clip_loss(outputs)
-        clip_loss = clip_loss_dict['clip_loss']
-        clip_acc = clip_loss_dict['clip_acc']
-
-        ssl_loss_dict = self.ssl_loss(outputs)
-        ssl_loss = ssl_loss_dict['ssl_loss']
-        ssl_acc = ssl_loss_dict['ssl_acc']
-
-        return {'loss': clip_loss + self.ssl_scale * ssl_loss,
-                'clip_loss': clip_loss,
-                'clip_acc': clip_acc,
-                'ssl_loss': ssl_loss,
-                'ssl_acc': ssl_acc}
-
+    def forward(self, image_features, text_features, logit_scale, aug1_embed, aug2_embed):
+        clip_loss = self.clip_loss(image_features, text_features, logit_scale)
+        ssl_loss = self.ssl_loss(aug1_embed, aug2_embed)
+        return clip_loss + self.ssl_scale * ssl_loss
 
 def unwrap_model(model):
     if hasattr(model, 'module'):
@@ -243,7 +203,12 @@ def train_one_epoch(model, data, epoch, optimizer, scaler, scheduler, args, tb_w
     device = torch.device(args.device)
     autocast = torch.cuda.amp.autocast if args.precision == 'amp' else suppress
     model.train()
-    loss = ClipLoss(args.local_loss, args.gather_with_grad, args.rank, args.world_size, args.horovod)
+    clip_loss = ClipLoss(args.local_loss, args.gather_with_grad, args.rank, args.world_size, args.horovod)
+    if args.SLIP:
+        simclr_loss = SIMCLRLoss(args.local_loss, args.gather_with_grad, args.rank, args.world_size, args.horovod)
+        loss = SLIPLoss(simclr_loss, clip_loss, args.ssl_scale)
+    else:
+        loss = clip_loss
 
     dataloader, sampler = data['train'].dataloader, data['train'].sampler
     if args.distributed and sampler is not None:
@@ -254,16 +219,22 @@ def train_one_epoch(model, data, epoch, optimizer, scaler, scheduler, args, tb_w
         step = num_batches_per_epoch * epoch + i
         scheduler(step)
 
-        images, texts = batch
+        images, texts, aug1, aug2 = batch
         images = images.to(device=device, non_blocking=True)
         texts = texts.to(device=device, non_blocking=True)
+        aug1 = aug1.to(device=device, non_blocking=True)
+        aug2 = aug2.to(device=device, non_blocking=True)
 
         data_time = time.time() - end
         optimizer.zero_grad()
 
         with autocast():
-            image_features, text_features, logit_scale = model(images, texts)
-            total_loss = loss(image_features, text_features, logit_scale)
+            if args.SLIP:
+                image_features, text_features, logit_scale, aug1_embed, aug2_embed = model(images, texts, aug1, aug2)
+                total_loss = loss(image_features, text_features, logit_scale, aug1_embed, aug2_embed)
+            else:
+                image_features, text_features, logit_scale = model(images, texts)
+                total_loss = loss(image_features, text_features, logit_scale)
 
         if scaler is not None:
             scaler.scale(total_loss).backward()
