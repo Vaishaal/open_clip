@@ -147,8 +147,6 @@ class SIMCLRLoss(nn.Module):
         device = aug1_embed.device
         q_a = aug1_embed
         q_b = aug2_embed
-        q_a = F.normalize(q_a, dim=-1, p=2)
-        q_b = F.normalize(q_b, dim=-1, p=2)
         local_batch_size = q_a.size(0)
         k_a, k_b = gather_features(
             aug1_embed, aug2_embed, 
@@ -188,7 +186,7 @@ class SLIPLoss(nn.Module):
     def forward(self, image_features, text_features, logit_scale, aug1_embed, aug2_embed):
         clip_loss = self.clip_loss(image_features, text_features, logit_scale)
         ssl_loss = self.ssl_loss(aug1_embed, aug2_embed)
-        return clip_loss + self.ssl_scale * ssl_loss
+        return clip_loss + self.ssl_scale*ssl_loss
 
 def unwrap_model(model):
     if hasattr(model, 'module'):
@@ -218,18 +216,16 @@ def train_one_epoch(model, data, epoch, optimizer, scaler, scheduler, args, tb_w
     for i, batch in enumerate(dataloader):
         step = num_batches_per_epoch * epoch + i
         scheduler(step)
-
         images, texts, aug1, aug2 = batch
         images = images.to(device=device, non_blocking=True)
         texts = texts.to(device=device, non_blocking=True)
-        aug1 = aug1.to(device=device, non_blocking=True)
-        aug2 = aug2.to(device=device, non_blocking=True)
-
         data_time = time.time() - end
         optimizer.zero_grad()
 
         with autocast():
             if args.SLIP:
+                aug1 = aug1.to(device=device, non_blocking=True)
+                aug2 = aug2.to(device=device, non_blocking=True)
                 image_features, text_features, logit_scale, aug1_embed, aug2_embed = model(images, texts, aug1, aug2)
                 total_loss = loss(image_features, text_features, logit_scale, aug1_embed, aug2_embed)
             else:

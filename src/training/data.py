@@ -312,7 +312,7 @@ def get_wds_dataset(args, preprocess_img, augment=None, is_train=False):
         .decode("pil", handler=wds.ignore_and_continue)
         .rename(image="jpg;png", text="txt")
         .to_tuple("image", "text", "image", "image")
-        .map_tuple(preprocess_img, preprocess_txt, augment, augment)
+        .map_tuple(preprocess_img, preprocess_txt, preprocess_img, preprocess_img)
         .batched(args.batch_size, partial=not is_train or not args.distributed)
     )
     dataloader = wds.WebLoader(

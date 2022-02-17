@@ -473,9 +473,9 @@ class CLIP(nn.Module):
         elif text is None:
             return self.encode_image(image)
         image_features = self.encode_image(image)
-        image_features = F.normalize(image_features, dim=-1)
 
         text_features = self.encode_text(text)
+        image_features = F.normalize(image_features, dim=-1)
         text_features = F.normalize(text_features, dim=-1)
 
         return image_features, text_features, self.logit_scale.exp()
@@ -511,10 +511,6 @@ class SLIP(CLIP):
             vision_cfg: CLIPVisionCfg,
             text_cfg: CLIPTextCfg,
     ):
-        if isinstance(vision_cfg, dict):
-            vision_cfg = CLIPVisionCfg(**vision_cfg)
-        if isinstance(text_cfg, dict):
-            text_cfg = CLIPTextCfg(**text_cfg)
         super().__init__(embed_dim, vision_cfg, text_cfg)
         self.image_mlp = self._build_mlp(in_dim=1024, mlp_dim=self.ssl_mlp_dim, out_dim=self.ssl_emb_dim)
 
@@ -534,16 +530,17 @@ class SLIP(CLIP):
         aug2_visual = self.visual(aug2)
         aug1_embed = self.image_mlp(aug1_visual)
         aug2_embed = self.image_mlp(aug2_visual)
-        
         image_embed = self.encode_image(image)
         text_embed = self.encode_text(text)
+        image_embed = F.normalize(image_embed, dim=-1)
+        text_embed = F.normalize(text_embed, dim=-1)
+        aug1_embed = F.normalize(aug1_embed, dim=-1)
+        aug2_embed = F.normalize(aug2_embed, dim=-1)
 
         return image_embed, text_embed, self.logit_scale.exp(), aug1_embed, aug2_embed
 
-
 def build_model(state_dict: dict):
     vit = "visual.proj" in state_dict
-
     if vit:
         vision_width = state_dict["visual.conv1.weight"].shape[0]
         vision_layers = len(

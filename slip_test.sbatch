@@ -1,11 +1,11 @@
 #!/bin/bash -x
 #SBATCH --account=cstdl
-#SBATCH --nodes=4
+#SBATCH --nodes=1
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=16
-#SBATCH --time=02:00:00
-#SBATCH --partition=booster
+#SBATCH --time=01:00:00
+#SBATCH --partition=develbooster
 #SBATCH --job-name=open_clip_debugging
 
 # load low-level libraries
@@ -36,12 +36,13 @@ srun python -u src/training/main.py \
     --report-to tensorboard \
     --train-data="/p/scratch/ccstdl/shankar/CC3M/train/{00000..03318}.tar" \
     --warmup 10000 \
-    --batch-size=1024 \
+    --batch-size=64 \
     --lr=5e-4 \
-    --wd=0.5 \
+    --wd=0.1 \
     --epochs=30 \
     --workers=8 \
     --model RN50 \
     --dist-url="env://" \
     --local-loss \
+    --ssl_scale 0.0  \
     --SLIP

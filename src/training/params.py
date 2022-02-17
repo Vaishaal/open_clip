@@ -94,7 +94,7 @@ def parse_args():
     parser.add_argument("--wd", type=float, default=0.2, help="Weight decay.")
     parser.add_argument("--ssl_scale", type=float, default=1.0, help="SSL Scale")
     parser.add_argument(
-        "--warmup", type=int, default=10000, help="Number of steps to warmup for."
+        "--warmup", type=int, default=100, help="Number of steps to warmup for."
     )
     parser.add_argument("--use-bn-sync",
         default=False,
