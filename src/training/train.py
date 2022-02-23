@@ -302,11 +302,16 @@ def evaluate(model, data, epoch, args, tb_writer=None):
         all_image_features, all_text_features = [], []
         with torch.no_grad():
             for batch in dataloader:
-                images, texts = batch
+                images, texts, aug1, aug2 = batch
                 images = images.to(device=device, non_blocking=True)
                 texts = texts.to(device=device, non_blocking=True)
+                if args.SLIP:
+                    aug1 = aug1.to(device=device, non_blocking=True)
+                    aug2 = aug2.to(device=device, non_blocking=True)
+                    image_features, text_features, logit_scale, aug1_embed, aug2_embed = model(images, texts, aug1, aug2)
+                else:
+                    image_features, text_features, logit_scale = model(images, texts)
 
-                image_features, text_features, logit_scale = model(images, texts)
                 all_image_features.append(image_features)
                 all_text_features.append(text_features)
                 logit_scale = logit_scale.mean()

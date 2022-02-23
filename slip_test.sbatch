@@ -4,9 +4,9 @@
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=4
 #SBATCH --cpus-per-task=16
-#SBATCH --time=01:00:00
-#SBATCH --partition=develbooster
-#SBATCH --job-name=open_clip_debugging
+#SBATCH --time=20:00:00
+#SBATCH --partition=booster
+#SBATCH --job-name=cc3m_slip_test_8_node
 
 # load low-level libraries
 ml purge
@@ -30,19 +30,35 @@ echo "MASTER_ADDR="$MASTER_ADDR
 
 cd /p/scratch/ccstdl/shankar/open_clip
 export PYTHONPATH="$PYTHONPATH:$PWD/src"
+export TIME=$(date +%s)
+export JOB_NAME="SLIP_TEST_1_NODE_$TIME"
 srun python -u src/training/main.py \
     --save-frequency 1 \
     --zeroshot-frequency 1 \
     --report-to tensorboard \
     --train-data="/p/scratch/ccstdl/shankar/CC3M/train/{00000..03318}.tar" \
     --warmup 10000 \
-    --batch-size=64 \
-    --lr=5e-4 \
+    --batch-size=128\
+    --lr=1e-3 \
     --wd=0.1 \
-    --epochs=30 \
+    --epochs=10 \
     --workers=8 \
-    --model RN50 \
+    --model ViT-B/16 \
     --dist-url="env://" \
+    --gather-with-grad \
     --local-loss \
-    --ssl_scale 0.0  \
-    --SLIP
+    --ssl_scale 1.0  \
+    --SLIP \
+    --name=$JOB_NAME
+
+srun python -u src/training/main.py \
+    --zeroshot-frequency 1 \
+    --val-data="/p/scratch/ccstdl/gordon2/CC3M/validation/{00000..00015}.tar" \
+    --imagenet-val="/p/scratch/ccstdl/gordon2/imagenet_val" \
+    --model ViT-B/16 \
+    --resume "/p/scratch/ccstdl/shankar/open_clip/logs/$JOB_NAME/checkpoints/epoch_10.pt" \
+    --workers 8 \
+    --local-loss \
+    --SLIP \
+    --name=$JOB_NAME
+

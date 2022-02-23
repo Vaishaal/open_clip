@@ -512,7 +512,7 @@ class SLIP(CLIP):
             text_cfg: CLIPTextCfg,
     ):
         super().__init__(embed_dim, vision_cfg, text_cfg)
-        self.image_mlp = self._build_mlp(in_dim=1024, mlp_dim=self.ssl_mlp_dim, out_dim=self.ssl_emb_dim)
+        self.image_mlp = self._build_mlp(in_dim=512, mlp_dim=self.ssl_mlp_dim, out_dim=self.ssl_emb_dim)
 
     def _build_mlp(self, in_dim, mlp_dim, out_dim):
         return nn.Sequential(OrderedDict([
